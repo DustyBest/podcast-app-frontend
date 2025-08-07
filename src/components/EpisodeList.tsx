@@ -15,7 +15,7 @@ function EpisodeList() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/episodes')
+    fetch('https://podcast-app-backend-production.up.railway.app/api/episodes')
       .then(res => res.json())
       .then(data => {
         if (data && data.length > 0) {
