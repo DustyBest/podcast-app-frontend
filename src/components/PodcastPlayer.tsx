@@ -116,7 +116,41 @@ const PodcastPlayer = ({
     };
 
     run();
-  }, [audioUrl, source]);
+  }, [audioUrl, source, pubDate]);
+
+  useEffect(() => {
+    if (!audioUrl || !source || !('mediaSession' in navigator)) return;
+
+    // Use provided image or fallback to pwa-512x512.png in /public
+    const artworkSrc = image ?? '/pwa-512x512.png';
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: source,
+      artist: 'Dusty Best', // or whatever you want here
+      artwork: [
+        { src: artworkSrc, sizes: '512x512', type: 'image/png' }
+      ],
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      audioRef.current?.audio?.current.play();
+    });
+
+    navigator.mediaSession.setActionHandler('pause', () => {
+      audioRef.current?.audio?.current.pause();
+    });
+
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      if (onClickPrevious) onClickPrevious();
+    });
+
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      if (onClickNext) onClickNext();
+    });
+
+    // We don’t set position state or update it here since no scrubber needed
+  }, [audioUrl, source, image, onClickNext, onClickPrevious]);
+
 
   // Save progress throttled every 5 seconds
   const handleListen = useCallback(() => {
