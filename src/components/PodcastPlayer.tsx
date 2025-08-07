@@ -126,7 +126,6 @@ const PodcastPlayer = ({
 
     navigator.mediaSession.metadata = new MediaMetadata({
       title: source,
-      artist: 'Dusty Best', // or whatever you want here
       artwork: [
         { src: artworkSrc, sizes: '512x512', type: 'image/png' }
       ],
@@ -141,15 +140,28 @@ const PodcastPlayer = ({
     });
 
     navigator.mediaSession.setActionHandler('previoustrack', () => {
-      if (onClickPrevious) onClickPrevious();
+      if (onClickPrevious) {
+        skipJustHappenedRef.current = true;
+        onClickPrevious();
+        setTimeout(() => {
+          audioRef.current?.audio?.current?.play().catch(console.error);
+        }, 300);
+      }
     });
 
     navigator.mediaSession.setActionHandler('nexttrack', () => {
-      if (onClickNext) onClickNext();
+      if (onClickNext) {
+        skipJustHappenedRef.current = true;
+        onClickNext();
+        setTimeout(() => {
+          audioRef.current?.audio?.current?.play().catch(console.error);
+        }, 300);
+      }
     });
 
-    // We don’t set position state or update it here since no scrubber needed
+    // No scrubber needed, so no position state logic
   }, [audioUrl, source, image, onClickNext, onClickPrevious]);
+
 
 
   // Save progress throttled every 5 seconds
