@@ -7,6 +7,7 @@ interface PodcastPlayerProps {
   audioUrl?: string;
   image?: string;
   loading?: boolean;
+  pubDate?: string;
   onClickNext?: () => void;
   onClickPrevious?: () => void;
   onEnded?: () => void;
@@ -24,11 +25,26 @@ if ('speechSynthesis' in window) {
   window.speechSynthesis.onvoiceschanged = loadVoices;
 }
 
-function announcePodcastNameAndWait(name: string): Promise<void> {
+async function announcePodcastNameAndWait(name: string, isContinuing = false, pubDate?: string): Promise<void> {
   return new Promise(resolve => {
     if (!('speechSynthesis' in window)) return resolve();
 
-    const utterance = new SpeechSynthesisUtterance(`Now playing ${name}`);
+    let text;
+    if (pubDate) {
+      const dateObj = new Date(pubDate);
+      const dayOfWeek = dateObj.toLocaleDateString(undefined, { weekday: 'long' });
+      const timeString = dateObj.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+
+      if (isContinuing) {
+        text = `Continuing ${name}, from ${dayOfWeek} at ${timeString}.`;
+      } else {
+        text = `From ${name}, on ${dayOfWeek} at ${timeString}.`;
+      }
+    } else {
+      text = `From ${name}.`;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
     if (cachedGoogleVoice) {
       utterance.voice = cachedGoogleVoice;
       utterance.lang = cachedGoogleVoice.lang;
@@ -42,6 +58,7 @@ function announcePodcastNameAndWait(name: string): Promise<void> {
   });
 }
 
+
 const SAVE_INTERVAL_MS = 5000;
 
 const PodcastPlayer = ({
@@ -52,18 +69,14 @@ const PodcastPlayer = ({
   onClickNext,
   onClickPrevious,
   onEnded,
+  pubDate,
 }: PodcastPlayerProps) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const audioRef = useRef<InstanceType<typeof AudioPlayer> | null>(null);
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Track if user manually pressed play at least once (required for autoplay)
   const userPlayedRef = useRef(false);
-
-  // Track if skip just happened to trigger announcement + play
   const skipJustHappenedRef = useRef(false);
-
-  // Reset announcement flag when episode changes
   const announcedRef = useRef(false);
 
   // Load saved progress when audioUrl changes
@@ -78,16 +91,18 @@ const PodcastPlayer = ({
   // Announce and autoplay after skip
   useEffect(() => {
     if (!audioUrl || !source || !audioRef.current?.audio?.current) return;
-    if (!skipJustHappenedRef.current) return; // Only run after skip
+    if (!skipJustHappenedRef.current) return;
 
     const audioEl = audioRef.current.audio.current;
 
     const run = async () => {
       audioEl.pause();
-      await announcePodcastNameAndWait(source);
 
-      // Restore saved position
       const savedTime = localStorage.getItem(`progress_${audioUrl}`);
+      const progress = savedTime ? Number(savedTime) : 0;
+
+      await announcePodcastNameAndWait(source, progress > 2, pubDate);
+
       if (savedTime) audioEl.currentTime = Number(savedTime);
 
       try {
@@ -97,7 +112,7 @@ const PodcastPlayer = ({
       }
 
       skipJustHappenedRef.current = false;
-      announcedRef.current = true; // Mark announced to avoid double announcement
+      announcedRef.current = true;
     };
 
     run();
@@ -124,15 +139,14 @@ const PodcastPlayer = ({
     if (onEnded) onEnded();
 
     if (onClickNext) {
-      skipJustHappenedRef.current = true; // flag for announcing and autoplaying next episode
+      skipJustHappenedRef.current = true;
       onClickNext();
     }
   };
 
-
   // User pressed play: announce if not already announced
   const handlePlay = async () => {
-    if (!audioRef.current?.audio?.current || !source) return;
+    if (!audioRef.current?.audio?.current || !source || !audioUrl) return;
     const audioEl = audioRef.current.audio.current;
 
     userPlayedRef.current = true;
@@ -140,7 +154,12 @@ const PodcastPlayer = ({
     if (!announcedRef.current) {
       announcedRef.current = true;
       audioEl.pause();
-      await announcePodcastNameAndWait(source);
+
+      const savedTime = localStorage.getItem(`progress_${audioUrl}`);
+      const progress = savedTime ? Number(savedTime) : 0;
+
+      await announcePodcastNameAndWait(source, progress > 2, pubDate,);
+
       try {
         await audioEl.play();
       } catch (e) {
@@ -149,7 +168,7 @@ const PodcastPlayer = ({
     }
   };
 
-  // Wrapped skip handlers to set skip flag and trigger parent's onClickNext/Previous
+  // Wrapped skip handlers
   const handleNext = () => {
     skipJustHappenedRef.current = true;
     if (onClickNext) onClickNext();
@@ -159,9 +178,6 @@ const PodcastPlayer = ({
     skipJustHappenedRef.current = true;
     if (onClickPrevious) onClickPrevious();
   };
-
-  // Initial load: do NOT announce or autoplay automatically without user interaction
-  // User must press play for first episode announcement
 
   return (
     <div className="max-w-md mx-auto p-4 relative bg-gray-900 rounded-lg shadow-lg text-white">

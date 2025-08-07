@@ -6,6 +6,7 @@ type Episode = {
   source: string;
   audioUrl: string;
   image?: string;
+  pubDate?: string;
 };
 
 function EpisodeList() {
@@ -47,6 +48,7 @@ function EpisodeList() {
         audioUrl={currentEpisode?.audioUrl ?? ''}
         image={currentEpisode?.image}
         loading={loading}
+        pubDate={currentEpisode?.pubDate}
         onClickNext={handleNext}
         onClickPrevious={handlePrevious}
         onEnded={handleNext}

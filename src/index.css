@@ -19,6 +19,16 @@ html, body, #root {
 .rhap_rewind-button {
   display: none !important;
 }
+.rhap_play-pause-button {
+  width: 64px !important;
+  height: 64px !important;
+  font-size: 32px !important; /* Adjust icon size */
+}
+
+.rhap_play-pause-button svg {
+  width: 64px !important;
+  height: 64px !important;
+}
 
 
 
