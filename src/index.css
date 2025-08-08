@@ -1,4 +1,6 @@
-/* Removed @tailwind directives because Tailwind CSS is not configured or not being processed by PostCSS */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 html, body, #root {
   height: 100%;
