@@ -13,6 +13,7 @@ function EpisodeList() {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const isLastEpisode = currentIndex === episodes.length - 1;
 
   useEffect(() => {
     fetch('https://podcast-app-backend-production.up.railway.app/api/episodes')
@@ -51,7 +52,8 @@ function EpisodeList() {
         pubDate={currentEpisode?.pubDate}
         onClickNext={handleNext}
         onClickPrevious={handlePrevious}
-        onEnded={handleNext}
+        onEnded={() => !isLastEpisode && handleNext()}
+        isLastEpisode={isLastEpisode}
       />
       </div>
     </div>

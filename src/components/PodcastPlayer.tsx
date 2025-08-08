@@ -8,6 +8,7 @@ interface PodcastPlayerProps {
   image?: string;
   loading?: boolean;
   pubDate?: string;
+  isLastEpisode?: boolean;
   onClickNext?: () => void;
   onClickPrevious?: () => void;
   onEnded?: () => void;
@@ -27,7 +28,8 @@ let isAnnouncing = false;
 async function announcePodcastNameAndWait(
   name: string,
   isContinuing = false,
-  pubDate?: string
+  pubDate?: string,
+  skipPrefix = false  // new optional param, default false
 ): Promise<'ended' | 'interrupted'> {
   if (isAnnouncing || !('speechSynthesis' in window)) return 'ended';
   isAnnouncing = true;
@@ -36,7 +38,9 @@ async function announcePodcastNameAndWait(
     speechSynthesis.cancel();
 
     let text;
-    if (pubDate) {
+    if (skipPrefix) {
+      text = name;  // say exactly what is passed, no extra text
+    } else if (pubDate) {
       const dateObj = new Date(pubDate);
       const dayOfWeek = dateObj.toLocaleDateString(undefined, { weekday: 'long' });
       const timeString = dateObj.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -79,6 +83,7 @@ const PodcastPlayer = ({
   onClickPrevious,
   onEnded,
   pubDate,
+  isLastEpisode,
 }: PodcastPlayerProps) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const audioRef = useRef<InstanceType<typeof AudioPlayer> | null>(null);
@@ -211,11 +216,17 @@ const PodcastPlayer = ({
     }, SAVE_INTERVAL_MS);
   }, [audioUrl]);
 
-  const handleEnded = () => {
+  const handleEnded = async () => {
     if (audioUrl) {
       localStorage.removeItem(`progress_${audioUrl}`);
     }
     if (onEnded) onEnded();
+
+    if (isLastEpisode) {
+      // Final announcement instead of loading another episode
+      await announcePodcastNameAndWait("That's all for today. See you next time!", false, undefined, true);
+      return; // Don't autoplay next
+    }
 
     // For natural end-of-track we still want the next episode announced.
     if (onClickNext) {
