@@ -2,7 +2,7 @@
 
 > A sophisticated React + TypeScript podcast player with intelligent voice announcements and seamless OS integration.
 
-[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-Visit_App-blue?style=for-the-badge)](https://your-app-url.netlify.app)
+[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-Visit_App-blue?style=for-the-badge)](https://dustysnews.netlify.app/)
 [![Backend Repo](https://img.shields.io/badge/🔗_Backend-View_Code-green?style=for-the-badge)](https://github.com/DustyBest/podcast-app-backend)
 
 ## ✨ Overview
