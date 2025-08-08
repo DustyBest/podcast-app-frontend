@@ -1,6 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import AudioPlayer from 'react-h5-audio-player';
 import 'react-h5-audio-player/lib/styles.css';
+import { useSpeechAnnouncement } from '../hooks/useSpeechAnnouncement';
+import { useProgressPersistence } from '../hooks/useProgressPersistence';
+import { useMediaSession } from '../hooks/useMediaSession';
 
 interface PodcastPlayerProps {
   source?: string;
@@ -13,66 +16,6 @@ interface PodcastPlayerProps {
   onClickPrevious?: () => void;
   onEnded?: () => void;
 }
-
-let cachedGoogleVoice: SpeechSynthesisVoice | null = null;
-function loadVoices() {
-  const voices = speechSynthesis.getVoices();
-  cachedGoogleVoice = voices.find(v => v.name === 'Google UK English Female') || null;
-}
-if ('speechSynthesis' in window) {
-  loadVoices();
-  window.speechSynthesis.onvoiceschanged = loadVoices;
-}
-
-let isAnnouncing = false;
-async function announcePodcastNameAndWait(
-  name: string,
-  isContinuing = false,
-  pubDate?: string,
-  skipPrefix = false  // new optional param, default false
-): Promise<'ended' | 'interrupted'> {
-  if (isAnnouncing || !('speechSynthesis' in window)) return 'ended';
-  isAnnouncing = true;
-
-  return new Promise(resolve => {
-    speechSynthesis.cancel();
-
-    let text;
-    if (skipPrefix) {
-      text = name;  // say exactly what is passed, no extra text
-    } else if (pubDate) {
-      const dateObj = new Date(pubDate);
-      const dayOfWeek = dateObj.toLocaleDateString(undefined, { weekday: 'long' });
-      const timeString = dateObj.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
-
-      text = isContinuing
-        ? `Continuing ${name}, from ${dayOfWeek} at ${timeString}.`
-        : `From ${name}, on ${dayOfWeek} at ${timeString}.`;
-    } else {
-      text = `From ${name}.`;
-    }
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (cachedGoogleVoice) {
-      utterance.voice = cachedGoogleVoice;
-      utterance.lang = cachedGoogleVoice.lang;
-    }
-
-    const handleEndOrAbort = (type: 'ended' | 'interrupted') => {
-      isAnnouncing = false;
-      resolve(type);
-    };
-
-    utterance.addEventListener('end', () => handleEndOrAbort('ended'));
-    utterance.addEventListener('error', () => handleEndOrAbort('ended'));
-    utterance.addEventListener('pause', () => handleEndOrAbort('interrupted'));
-    utterance.addEventListener('abort', () => handleEndOrAbort('interrupted'));
-
-    speechSynthesis.speak(utterance);
-  });
-}
-
-const SAVE_INTERVAL_MS = 5000;
 
 const PodcastPlayer = ({
   source,
@@ -87,22 +30,40 @@ const PodcastPlayer = ({
 }: PodcastPlayerProps) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const audioRef = useRef<InstanceType<typeof AudioPlayer> | null>(null);
-  const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const userPlayedRef = useRef(false);
   const skipJustHappenedRef = useRef(false);
-  const announcedRef = useRef(false); // <-- single guard for "we've announced this episode"
+  
+  const {
+    announce,
+    cancelAnnouncement,
+    resetAnnouncedFlag,
+    setAnnouncedFlag,
+    hasAnnounced
+  } = useSpeechAnnouncement();
 
-  // Load saved progress when audioUrl changes
+  const {
+    handleListen,
+    clearProgress,
+    getSavedProgress
+  } = useProgressPersistence(audioUrl, audioRef);
+
+  useMediaSession({
+    audioUrl,
+    source,
+    image,
+    audioRef,
+    onClickNext,
+    onClickPrevious,
+    skipJustHappenedRef,
+    cancelAnnouncement
+  });
+
+  // Reset announced flag for new episodes
   useEffect(() => {
     if (!audioUrl) return;
-    const savedTime = localStorage.getItem(`progress_${audioUrl}`);
-    if (savedTime && audioRef.current?.audio?.current) {
-      audioRef.current.audio.current.currentTime = Number(savedTime);
-    }
-    // reset announced flag for a new episode so announcements can happen again
-    announcedRef.current = false;
-  }, [audioUrl]);
+    resetAnnouncedFlag();
+  }, [audioUrl, resetAnnouncedFlag]);
 
   // Announce + autoplay after a skip (but only if not already announced)
   useEffect(() => {
@@ -114,25 +75,24 @@ const PodcastPlayer = ({
     // handler runs once the element can play; ensures we pause any auto-play that raced in
     const handleCanPlay = async () => {
       // If another handler already announced, bail out
-      if (announcedRef.current) {
+      if (hasAnnounced()) {
         skipJustHappenedRef.current = false;
         audioEl.removeEventListener('canplay', handleCanPlay);
         return;
       }
 
       // ensure we set the announced guard immediately so other handlers won't announce
-      announcedRef.current = true;
+      setAnnouncedFlag();
 
       // Stop any early playback from react-h5-audio-player
       try { audioEl.pause(); } catch(e) {console.log(e);}
 
-      const savedTime = localStorage.getItem(`progress_${audioUrl}`);
-      const progress = savedTime ? Number(savedTime) : 0;
+      const progress = getSavedProgress();
 
-      const announcementResult = await announcePodcastNameAndWait(source, progress > 2, pubDate);
+      const announcementResult = await announce(source, progress > 2, pubDate);
 
       // restore saved time
-      if (savedTime) audioEl.currentTime = Number(savedTime);
+      if (progress > 0) audioEl.currentTime = progress;
 
       if (announcementResult === 'ended') {
         try {
@@ -153,78 +113,28 @@ const PodcastPlayer = ({
     audioEl.addEventListener('canplay', handleCanPlay);
 
     // in case canplay already fired before we added listener, call it on next tick
-    // but guard against double-run using announcedRef above
+    // but guard against double-run using hasAnnounced above
     setTimeout(() => {
-      if (!announcedRef.current && !skipJustHappenedRef.current) return;
+      if (!hasAnnounced() && !skipJustHappenedRef.current) return;
       // nothing to do here — we rely on the canplay listener
     }, 0);
 
     return () => {
       audioEl.removeEventListener('canplay', handleCanPlay);
     };
-  }, [audioUrl, source, pubDate]);
+  }, [audioUrl, source, pubDate, announce, hasAnnounced, setAnnouncedFlag, getSavedProgress]);
 
-  // Media session setup (unchanged except it uses handlers that now set skipJustHappenedRef)
-  useEffect(() => {
-    if (!audioUrl || !source || !('mediaSession' in navigator)) return;
-    const artworkSrc = image ?? '/pwa-512x512.png';
 
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: source,
-      artwork: [{ src: artworkSrc, sizes: '512x512', type: 'image/png' }],
-    });
 
-    navigator.mediaSession.setActionHandler('play', () => {
-      audioRef.current?.audio?.current.play();
-    });
-    navigator.mediaSession.setActionHandler('pause', () => {
-      audioRef.current?.audio?.current.pause();
-    });
-    navigator.mediaSession.setActionHandler('previoustrack', () => {
-      // lock-screen / hardware controls must act immediately — don't announce on lock skips
-      if (onClickPrevious) {
-        skipJustHappenedRef.current = true;
-        // cancel any ongoing speech to avoid overlap
-        speechSynthesis.cancel();
-        isAnnouncing = false;
-        onClickPrevious();
-        // play ASAP so OS/mediaSession doesn't think playback stopped
-        setTimeout(() => audioRef.current?.audio?.current?.play().catch(console.error), 250);
-      }
-    });
-    navigator.mediaSession.setActionHandler('nexttrack', () => {
-      if (onClickNext) {
-        skipJustHappenedRef.current = true;
-        speechSynthesis.cancel();
-        isAnnouncing = false;
-        onClickNext();
-        setTimeout(() => audioRef.current?.audio?.current?.play().catch(console.error), 250);
-      }
-    });
-  }, [audioUrl, source, image, onClickNext, onClickPrevious]);
 
-  // Save progress throttled every 5 seconds
-  const handleListen = useCallback(() => {
-    if (!audioRef.current?.audio?.current || !audioUrl) return;
-    if (saveTimeout.current) return;
-
-    const currentTime = audioRef.current.audio.current.currentTime;
-    localStorage.setItem(`progress_${audioUrl}`, currentTime.toString());
-
-    saveTimeout.current = setTimeout(() => {
-      saveTimeout.current = null;
-    }, SAVE_INTERVAL_MS);
-  }, [audioUrl]);
 
   const handleEnded = async () => {
-    if (audioUrl) {
-      localStorage.removeItem(`progress_${audioUrl}`);
-    }
+    clearProgress();
     if (onEnded) onEnded();
 
     if (isLastEpisode) {
       // Final announcement instead of loading another episode
-      await announcePodcastNameAndWait("That's all for today. See you next time!", false, undefined, true);
+      await announce("That's all for today. See you next time!", false, undefined, true);
       return; // Don't autoplay next
     }
 
@@ -242,21 +152,20 @@ const PodcastPlayer = ({
 
     userPlayedRef.current = true;
 
-    // If another path already set announcedRef, skip announcing again
-    if (announcedRef.current) return;
+    // If another path already set announced flag, skip announcing again
+    if (hasAnnounced()) return;
 
     // Reserve the announced slot immediately so canplay or other handlers don't race in
-    announcedRef.current = true;
+    setAnnouncedFlag();
 
     // Pause before announcing to avoid overlap
     try { audioEl.pause(); } catch(e) {console.log(e);}
 
-    const savedTime = localStorage.getItem(`progress_${audioUrl}`);
-    const progress = savedTime ? Number(savedTime) : 0;
+    const progress = getSavedProgress();
 
-    const announcementResult = await announcePodcastNameAndWait(source, progress > 2, pubDate);
+    const announcementResult = await announce(source, progress > 2, pubDate);
 
-    if (savedTime) audioEl.currentTime = Number(savedTime);
+    if (progress > 0) audioEl.currentTime = progress;
 
     if (announcementResult === 'ended') {
       try {
@@ -272,15 +181,13 @@ const PodcastPlayer = ({
 
   // Wrapped skip handlers from the UI (not lock-screen) — they should cancel speech and set the flag
   const handleNext = () => {
-    speechSynthesis.cancel();
-    isAnnouncing = false;
+    cancelAnnouncement();
     skipJustHappenedRef.current = true;
     if (onClickNext) onClickNext();
   };
 
   const handlePrevious = () => {
-    speechSynthesis.cancel();
-    isAnnouncing = false;
+    cancelAnnouncement();
     skipJustHappenedRef.current = true;
     if (onClickPrevious) onClickPrevious();
   };
