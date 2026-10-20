@@ -8,13 +8,17 @@
 
 # production
 /build
+/dist
 
-# misc
-.DS_Store
+# environment variables & secrets
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+
+# misc
+.DS_Store
 
 # logs
 npm-debug.log*
@@ -28,3 +32,7 @@ yarn-error.log*
 *.ntvs*
 *.njsproj
 *.sln
+
+# local credentials & logs
+.git-credentials
+*.log

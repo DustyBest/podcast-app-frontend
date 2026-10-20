@@ -12,6 +12,8 @@ interface UseMediaSessionProps {
   cancelAnnouncement: () => void;
 }
 
+const MEDIA_SESSION_BUTTONS = ['play', 'pause', 'previoustrack', 'nexttrack'] as const;
+
 export function useMediaSession({
   audioUrl,
   source,
@@ -20,58 +22,68 @@ export function useMediaSession({
   onClickNext,
   onClickPrevious,
   skipJustHappenedRef,
-  cancelAnnouncement
+  cancelAnnouncement,
 }: UseMediaSessionProps) {
-  
   useEffect(() => {
-    if (!audioUrl || !source || !('mediaSession' in navigator)) return;
-    
+    if (!audioUrl || !source || !('mediaSession' in navigator)) {
+      return;
+    }
+
+    const audioEl = audioRef.current?.audio?.current;
     const artworkSrc = image ?? '/pwa-512x512.png';
 
-    // Set media metadata
     navigator.mediaSession.metadata = new MediaMetadata({
       title: source,
       artwork: [{ src: artworkSrc, sizes: '512x512', type: 'image/png' }],
     });
 
-    // Set action handlers
+    const safePlay = () => {
+      if (!audioEl) return;
+
+      const playPromise = audioEl.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch((error) => console.warn('MediaSession play failed', error));
+      }
+    };
+
     navigator.mediaSession.setActionHandler('play', () => {
-      audioRef.current?.audio?.current?.play();
+      safePlay();
     });
 
     navigator.mediaSession.setActionHandler('pause', () => {
-      audioRef.current?.audio?.current?.pause();
+      audioEl?.pause();
     });
 
     navigator.mediaSession.setActionHandler('previoustrack', () => {
-      // lock-screen / hardware controls must act immediately — don't announce on lock skips
-      if (onClickPrevious) {
-        skipJustHappenedRef.current = true;
-        // cancel any ongoing speech to avoid overlap
-        cancelAnnouncement();
-        onClickPrevious();
-        // play ASAP so OS/mediaSession doesn't think playback stopped
-        setTimeout(() => audioRef.current?.audio?.current?.play().catch(console.error), 250);
-      }
+      if (!onClickPrevious) return;
+
+      skipJustHappenedRef.current = true;
+      cancelAnnouncement();
+      onClickPrevious();
+      window.setTimeout(() => {
+        if (audioRef.current?.audio?.current) {
+          audioRef.current.audio.current.play().catch(console.error);
+        }
+      }, 250);
     });
 
     navigator.mediaSession.setActionHandler('nexttrack', () => {
-      if (onClickNext) {
-        skipJustHappenedRef.current = true;
-        cancelAnnouncement();
-        onClickNext();
-        setTimeout(() => audioRef.current?.audio?.current?.play().catch(console.error), 250);
-      }
+      if (!onClickNext) return;
+
+      skipJustHappenedRef.current = true;
+      cancelAnnouncement();
+      onClickNext();
+      window.setTimeout(() => {
+        if (audioRef.current?.audio?.current) {
+          audioRef.current.audio.current.play().catch(console.error);
+        }
+      }, 250);
     });
 
-    // Cleanup function to remove action handlers
     return () => {
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.setActionHandler('play', null);
-        navigator.mediaSession.setActionHandler('pause', null);
-        navigator.mediaSession.setActionHandler('previoustrack', null);
-        navigator.mediaSession.setActionHandler('nexttrack', null);
+      for (const action of MEDIA_SESSION_BUTTONS) {
+        navigator.mediaSession.setActionHandler(action, null);
       }
     };
-  }, [audioUrl, source, image, onClickNext, onClickPrevious, cancelAnnouncement, audioRef, skipJustHappenedRef]);
+  }, [audioUrl, source, image, audioRef, onClickNext, onClickPrevious, skipJustHappenedRef, cancelAnnouncement]);
 }
