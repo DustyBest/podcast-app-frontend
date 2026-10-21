@@ -43,7 +43,22 @@ function buildAnnouncementText(name: string, isContinuing: boolean, pubDate?: st
 // 1. ElevenLabs Audio Fetcher via Backend Proxy
 async function playElevenLabsAnnouncement(text: string): Promise<boolean> {
   try {
-    const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+    const rawBase = import.meta.env.VITE_API_BASE_URL || '';
+    
+    // Ensure base URL starts with https:// to prevent domain concatenation
+    let apiBase = rawBase.trim();
+    if (!apiBase.startsWith('http://') && !apiBase.startsWith('https://')) {
+      apiBase = `https://${apiBase}`;
+    }
+    
+    // Fall back to Railway domain if variable is empty or invalid
+    if (!rawBase || rawBase.trim() === '' || apiBase === 'https://') {
+      apiBase = 'https://podcast-app-backend-production.up.railway.app';
+    }
+
+    // Remove any trailing slash
+    apiBase = apiBase.replace(/\/$/, '');
+
     const res = await fetch(`${apiBase}/api/tts?text=${encodeURIComponent(text)}`);
 
     if (!res.ok) return false;
