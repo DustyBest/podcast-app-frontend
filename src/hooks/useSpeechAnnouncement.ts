@@ -2,20 +2,22 @@ import { useCallback, useEffect, useRef } from 'react';
 
 type AnnouncementResult = 'ended' | 'interrupted';
 
-let cachedGoogleVoice: SpeechSynthesisVoice | null = null;
+let cachedVoice: SpeechSynthesisVoice | null = null;
 let isAnnouncing = false;
 let announcementGeneration = 0;
+let currentAudioElement: HTMLAudioElement | null = null;
 
 function loadVoices() {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-
   const voices = window.speechSynthesis.getVoices();
-  cachedGoogleVoice = voices.find((voice) => voice.name === 'Google UK English Female') ?? null;
+  cachedVoice =
+    voices.find((v) => v.name.includes('Natural') || v.name.includes('Enhanced')) ??
+    voices.find((v) => v.name === 'Google UK English Female') ??
+    null;
 }
 
 function ensureSpeechSynthesisReady() {
-  if (typeof window === 'undefined') return false;
-  return 'speechSynthesis' in window;
+  return typeof window !== 'undefined' && 'speechSynthesis' in window;
 }
 
 function buildAnnouncementText(name: string, isContinuing: boolean, pubDate?: string, skipPrefix = false) {
@@ -38,39 +40,60 @@ function buildAnnouncementText(name: string, isContinuing: boolean, pubDate?: st
   return `From ${name}.`;
 }
 
-async function announcePodcastNameAndWait(
-  name: string,
-  isContinuing = false,
-  pubDate?: string,
-  skipPrefix = false
-): Promise<AnnouncementResult> {
-  if (!ensureSpeechSynthesisReady()) {
-    return 'ended';
+// 1. ElevenLabs Audio Fetcher via Backend Proxy
+async function playElevenLabsAnnouncement(text: string): Promise<boolean> {
+  try {
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+    const res = await fetch(`${apiBase}/api/tts?text=${encodeURIComponent(text)}`);
+
+    if (!res.ok) return false;
+
+    const blob = await res.blob();
+    const audioUrl = URL.createObjectURL(blob);
+
+    return new Promise((resolve) => {
+      const audio = new Audio(audioUrl);
+      currentAudioElement = audio;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        currentAudioElement = null;
+        resolve(true);
+      };
+
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        currentAudioElement = null;
+        resolve(false);
+      };
+
+      audio.play().catch(() => resolve(false));
+    });
+  } catch {
+    return false;
   }
+}
+
+// 2. Native SpeechSynthesis Fallback
+async function announceNativeFallback(text: string): Promise<AnnouncementResult> {
+  if (!ensureSpeechSynthesisReady()) return 'ended';
 
   const currentGeneration = ++announcementGeneration;
   const synthesis = window.speechSynthesis;
 
-  if (isAnnouncing) {
-    synthesis.cancel();
-  }
-
+  if (isAnnouncing) synthesis.cancel();
   isAnnouncing = true;
 
   return new Promise((resolve) => {
-    const text = buildAnnouncementText(name, isContinuing, pubDate, skipPrefix);
     const utterance = new SpeechSynthesisUtterance(text);
-
-    if (cachedGoogleVoice) {
-      utterance.voice = cachedGoogleVoice;
-      utterance.lang = cachedGoogleVoice.lang;
+    if (cachedVoice) {
+      utterance.voice = cachedVoice;
+      utterance.lang = cachedVoice.lang;
     }
+    utterance.rate = 0.94;
 
     const finalize = (result: AnnouncementResult) => {
-      if (currentGeneration !== announcementGeneration) {
-        return;
-      }
-
+      if (currentGeneration !== announcementGeneration) return;
       isAnnouncing = false;
       resolve(result);
     };
@@ -95,34 +118,33 @@ export function useSpeechAnnouncement() {
       pubDate?: string,
       skipPrefix = false
     ): Promise<AnnouncementResult> => {
-      return announcePodcastNameAndWait(name, isContinuing, pubDate, skipPrefix);
+      const text = buildAnnouncementText(name, isContinuing, pubDate, skipPrefix);
+
+      // Attempt ElevenLabs HD Voice first
+      const elevenLabsSuccess = await playElevenLabsAnnouncement(text);
+      if (elevenLabsSuccess) return 'ended';
+
+      // Fallback to Native Speech Synthesis
+      return announceNativeFallback(text);
     },
     []
   );
 
   const cancelAnnouncement = useCallback(() => {
-    if (!ensureSpeechSynthesisReady()) return;
+    if (currentAudioElement) {
+      currentAudioElement.pause();
+      currentAudioElement = null;
+    }
 
-    window.speechSynthesis.cancel();
-    isAnnouncing = false;
-    announcementGeneration += 1;
-  }, []);
-
-  const resetAnnouncedFlag = useCallback(() => {
-    announcedRef.current = false;
-  }, []);
-
-  const setAnnouncedFlag = useCallback(() => {
-    announcedRef.current = true;
-  }, []);
-
-  const hasAnnounced = useCallback(() => {
-    return announcedRef.current;
+    if (ensureSpeechSynthesisReady()) {
+      window.speechSynthesis.cancel();
+      isAnnouncing = false;
+      announcementGeneration += 1;
+    }
   }, []);
 
   useEffect(() => {
     if (!ensureSpeechSynthesisReady()) return;
-
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
 
@@ -135,9 +157,13 @@ export function useSpeechAnnouncement() {
   return {
     announce,
     cancelAnnouncement,
-    resetAnnouncedFlag,
-    setAnnouncedFlag,
-    hasAnnounced,
-    isAnnouncing: () => isAnnouncing,
+    resetAnnouncedFlag: useCallback(() => {
+      announcedRef.current = false;
+    }, []),
+    setAnnouncedFlag: useCallback(() => {
+      announcedRef.current = true;
+    }, []),
+    hasAnnounced: useCallback(() => announcedRef.current, []),
+    isAnnouncing: () => isAnnouncing || !!currentAudioElement,
   };
 }
