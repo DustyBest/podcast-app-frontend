@@ -160,6 +160,21 @@ const PodcastPlayer = ({
     if (onClickPrevious) onClickPrevious();
   }, [cancelAnnouncement, onClickPrevious]);
 
+  // Direct Jump Handlers
+  const handleRewind10 = useCallback(() => {
+    const audioEl = audioRef.current?.audio?.current;
+    if (audioEl) {
+      audioEl.currentTime = Math.max(audioEl.currentTime - 10, 0);
+    }
+  }, []);
+
+  const handleSkip30 = useCallback(() => {
+    const audioEl = audioRef.current?.audio?.current;
+    if (audioEl) {
+      audioEl.currentTime = Math.min(audioEl.currentTime + 30, audioEl.duration || Infinity);
+    }
+  }, []);
+
   const playerClassName = useMemo(
     () =>
       'rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900',
@@ -195,23 +210,49 @@ const PodcastPlayer = ({
 
       <div className="relative" aria-live="polite" aria-atomic="true">
         {!loading && audioUrl ? (
-          <AudioPlayer
-            ref={audioRef}
-            src={audioUrl}
-            showSkipControls
-            showJumpControls={true}
-            progressJumpSteps={{
-              backward: 10000,
-              forward: 30000,
-            }}
-            aria-label={source ? `Audio player for ${source}` : 'Audio player'}
-            onListen={handleListen}
-            onClickNext={handleNext}
-            onClickPrevious={handlePrevious}
-            onEnded={handleEnded}
-            onPlay={handlePlay}
-            className={playerClassName}
-          />
+          <div>
+            {/* Quick-Jump Shortcut Bar */}
+            <div className="flex justify-center items-center gap-6 mb-3">
+              <button
+                type="button"
+                onClick={handleRewind10}
+                className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 bg-gray-800 hover:bg-gray-700 active:bg-gray-600 rounded-full border border-gray-700 text-gray-200 transition-colors focus-visible:ring-2 focus-visible:ring-orange-400"
+                aria-label="Rewind 10 seconds"
+              >
+                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                  <path d="M12.5 3C17.15 3 21 6.85 21 11.5C21 16.15 17.15 20 12.5 20C8.64 20 5.41 17.41 4.41 13.88L6.45 13.29C7.2 15.93 9.62 18 12.5 18C16.09 18 19 15.09 19 11.5C19 7.91 16.09 5 12.5 5C10.15 5 8.09 6.25 6.95 8.12L9 10.17H3V4.17L5.38 6.55C6.96 4.38 9.56 3 12.5 3Z" />
+                </svg>
+                -10s
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSkip30}
+                className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 bg-gray-800 hover:bg-gray-700 active:bg-gray-600 rounded-full border border-gray-700 text-gray-200 transition-colors focus-visible:ring-2 focus-visible:ring-orange-400"
+                aria-label="Skip 30 seconds"
+              >
+                +30s
+                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                  <path d="M11.5 3C6.85 3 3 6.85 3 11.5C3 16.15 6.85 20 11.5 20C15.36 20 18.59 17.41 19.59 13.88L17.55 13.29C16.8 15.93 14.38 18 11.5 18C7.91 18 5 15.09 5 11.5C5 7.91 7.91 5 11.5 5C13.85 5 15.91 6.25 17.05 8.12L15 10.17H21V4.17L18.62 6.55C17.04 4.38 14.44 3 11.5 3Z" />
+                </svg>
+              </button>
+            </div>
+
+            <AudioPlayer
+              ref={audioRef}
+              src={audioUrl}
+              showSkipControls={true}
+              showJumpControls={false}
+              customAdditionalControls={[]}
+              aria-label={source ? `Audio player for ${source}` : 'Audio player'}
+              onListen={handleListen}
+              onClickNext={handleNext}
+              onClickPrevious={handlePrevious}
+              onEnded={handleEnded}
+              onPlay={handlePlay}
+              className={playerClassName}
+            />
+          </div>
         ) : (
           <div className="h-[72px] w-full animate-pulse bg-gray-200 rounded-md" aria-hidden="true" />
         )}
