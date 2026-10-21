@@ -199,6 +199,11 @@ const PodcastPlayer = ({
             ref={audioRef}
             src={audioUrl}
             showSkipControls
+            showJumpControls={true}
+            progressJumpSteps={{
+              backward: 10000,
+              forward: 30000,
+            }}
             aria-label={source ? `Audio player for ${source}` : 'Audio player'}
             onListen={handleListen}
             onClickNext={handleNext}
